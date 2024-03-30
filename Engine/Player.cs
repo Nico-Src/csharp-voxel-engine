@@ -6,112 +6,145 @@ using System.Threading.Tasks;
 using OpenTK.Mathematics;
 using OpenTK.Windowing.Common;
 using OpenTK.Windowing.GraphicsLibraryFramework;
+using Engine.Core;
 
 namespace Engine
 {
     public class Player
     {
+        /// <summary>
+        /// The camera that is used to render the players view
+        /// </summary>
         public Camera Camera { get; set; }
-        public float Height = 1.8f;
-        public float Width = .8f;
-        public Vector3 Position { get; set; }
-        public bool Fly { get; set; }
-        public VoxelType HotbarVoxel { get; set; } = VoxelType.Dirt;
-        public float Velocity { get; set; }
-        public float MaxVelocity { get; set; }
+
+        /// <summary>
+        /// Size of the Player (width, height, "depth")
+        /// </summary>
+        public Size Size { get; set; } = new Size(0.8f, 10.8f);
+
+        /// <summary>
+        /// Transform of the Player (Position, Rotation, Scale)
+        /// </summary>
+        public Transform Transform { get; set; }
+
+        /// <summary>
+        /// Temporary flying bool (TODO: Replace with Gamemode)
+        /// </summary>
+        public bool Fly { get; set; } = true;
+
+        /// <summary>
+        /// The Current Chunk the Player is in
+        /// </summary>
         public Chunk CurrentChunk { get; set; }
+
+        /// <summary>
+        /// The Chunk that the Player was in the last frame (used for keeping track of which chunks are not in the players range anymore
+        /// </summary>
         public Chunk LastChunk { get; set; }
 
-        public bool firstMove = true;
-        public int BreakRadius = 0;
+        /// <summary>
+        /// The radius of blocks getting destroyed
+        /// </summary>
+        public int BreakRadius = 5;
 
+        /// <summary>
+        /// The Players max distance he can reach
+        /// </summary>
+        public float PlayerReach { get; set; }
+
+        /// <summary>
+        /// Boolean that tells if the current mouse move is the first one (to initialize some variables)
+        /// </summary>
+        private bool firstMove = true;
+
+        /// <summary>
+        /// Current distance of the raycast
+        /// </summary>
         private float distance = 0;
-        private float maxDistance = 5;
-        private float step = 0.25f;
+
+        /// <summary>
+        /// Last moiuse position
+        /// </summary>
         private Vector2 lastPos;
+
+        /// <summary>
+        /// Engine reference
+        /// </summary>
         private Engine engine;
-        private const float BobbingSpeed = 1.5f;       // Speed of the head bobbing motion
-        private const float BobbingAmount = 0.1f;    // Amount of head bobbing displacement
-
-        private float headBobOffset;                  // Current head bob offset
-        private float bobbingTimer;                   // Timer for head bobbing motion
-
 
         public Player(Engine engine)
         {
-            Velocity = 0;
-            MaxVelocity = 4;
+            this.Transform = new Transform();
+            
+            this.PlayerReach = 500;
+            
             this.engine = engine;
-
-            this.InitCamera();
+            this.Init();
         }
 
-        public void InitCamera()
+        /// <summary>
+        /// Initialize Camera and Transforms
+        /// </summary>
+        public void Init()
         {
+            // find height at spawn position
             var noise = Math.Abs(this.engine.world.Noise.GetNoise(500f, 500f));
             if (noise > 1) noise = .95f;
             var height = Math.Max(10, noise * Globals.CHUNK_HEIGHT);
+            
             // init camera
             this.Camera = new Camera(new Vector3(0, 0, 0), this.engine.Size.X / (float)this.engine.Size.Y);
-            this.Position = new Vector3(0, height + this.Height + 1, 0);
-            this.Camera.Position = this.Position + new Vector3(0, this.Height, 0);
+            // set position
+            this.Transform.Position = new Vector3(0, height + this.Size.Height + 1, 0);
+            // set camera parent to player
+            this.Camera.Transform.Parent = this.Transform;
+            // set camera position to player height
+            this.Camera.Transform.Position = new Vector3(0, this.Size.Height, 0);
         }
 
+        /// <summary>
+        /// Handle Input
+        /// </summary>
+        /// <param name="input"> keyboard state (keys, ...) </param>
+        /// <param name="mouse"> mouse state (buttons, ...) </param>
+        /// <param name="e"> frame details (time, ...) </param>
         public void HandleInput(KeyboardState input, MouseState mouse, FrameEventArgs e)
         {
-            bool grounded = this.engine.world.GetVoxel(this.Position) != VoxelType.Air;
-            // bool forward = this.engine.world.GetVoxel(new Vector3(xPos, yPos, zPos + this.Width), true) == BlockType.Air && this.engine.world.GetVoxel(new Vector3(xPos, yPos + .5f, zPos + this.Width), true) == BlockType.Air;
-            // bool backward = this.engine.world.GetVoxel(new Vector3(xPos, yPos, zPos - this.Width), true) == BlockType.Air && this.engine.world.GetVoxel(new Vector3(xPos, yPos + .5f, zPos - this.Width), true) == BlockType.Air;
-            // bool left = this.engine.world.GetVoxel(new Vector3(xPos - this.Width, yPos, zPos), true) == BlockType.Air && this.engine.world.GetVoxel(new Vector3(xPos - this.Width, yPos + .5f, zPos), true) == BlockType.Air;
-            // bool right = this.engine.world.GetVoxel(new Vector3(xPos + this.Width, yPos, zPos), true) == BlockType.Air && this.engine.world.GetVoxel(new Vector3(xPos + this.Width, yPos + .5f, zPos), true) == BlockType.Air;
+            // check if player is grounded (if voxel is beneath the player)
+            bool grounded = this.engine.world.GetVoxel(this.Transform.Position) != VoxelType.Air;
 
             // multiply speed when shift is pressed
             float camSpeed = this.Camera.Speed * (input.IsKeyDown(Keys.LeftShift) ? 1.5f : 1f);
+
+            // build movement vector based on which keys are pressed
             Vector2 movVec = new Vector2(input.IsKeyDown(Keys.A) ? -1 : input.IsKeyDown(Keys.D) ? 1 : 0, input.IsKeyDown(Keys.W) ? 1 : input.IsKeyDown(Keys.S) ? -1 : 0);
+            // normalize movement vector to prevent faster diagonal movement
             movVec.NormalizeFast();
 
-            // calc velocity for movement vector
-            if(this.Camera.Pitch <= -45) this.Position += new Vector3(this.Camera.Up.X * movVec.Y, 0, this.Camera.Up.Z * movVec.Y) * camSpeed * (float)e.Time;
-            else if(this.Camera.Pitch >= 45) this.Position -= new Vector3(this.Camera.Up.X * movVec.Y, 0, this.Camera.Up.Z * movVec.Y) * camSpeed * (float)e.Time;
-            else this.Position += new Vector3(this.Camera.Front.X * movVec.Y, 0, this.Camera.Front.Z * movVec.Y) * camSpeed * (float)e.Time;
-            this.Position += new Vector3(this.Camera.Right.X * movVec.X, 0, this.Camera.Right.Z * movVec.X) * camSpeed * (float)e.Time;
+            // calculate velocity for movement vector (based on pitch different camera vectors must be used)
+            if(this.Camera.Pitch <= -45) this.Transform.Position += new Vector3(this.Camera.Up.X * movVec.Y, 0, this.Camera.Up.Z * movVec.Y) * camSpeed * (float)e.Time;
+            else if(this.Camera.Pitch >= 45) this.Transform.Position -= new Vector3(this.Camera.Up.X * movVec.Y, 0, this.Camera.Up.Z * movVec.Y) * camSpeed * (float)e.Time;
+            else this.Transform.Position += new Vector3(this.Camera.Front.X * movVec.Y, 0, this.Camera.Front.Z * movVec.Y) * camSpeed * (float)e.Time;
+            
+            this.Transform.Position += new Vector3(this.Camera.Right.X * movVec.X, 0, this.Camera.Right.Z * movVec.X) * camSpeed * (float)e.Time;
 
+            var yVel = 0f;
             // jump / fly and descend controls
-            if ((input.IsKeyDown(Keys.Space) && grounded) || (input.IsKeyDown(Keys.Space) && this.Fly)) this.Velocity = -1.75f;
-            if ((input.IsKeyDown(Keys.LeftControl) && this.Fly)) this.Velocity = 1.75f;
+            if ((input.IsKeyDown(Keys.Space) && grounded) || (input.IsKeyDown(Keys.Space) && this.Fly)) yVel = -1.75f;
+            if ((input.IsKeyDown(Keys.LeftControl) && this.Fly)) yVel = 1.75f;
 
-            // if none of the fly controls is pressed, set velocity to 0
-            if (!input.IsKeyDown(Keys.Space) && !input.IsKeyDown(Keys.LeftControl) && this.Fly) this.Velocity = 0;
+            this.Transform.Position -= new Vector3(0, yVel, 0) * this.Camera.Speed * (float)e.Time; // Update Position
 
-            // decrease velocity from jump to fall again
-            if (Velocity < MaxVelocity && !this.Fly)
+            // change cursorstate on f1
+            if (input.IsKeyPressed(Keys.F1))
             {
-                Velocity += 0.01f;
-            }
-
-            // reset velocity once the player is grounded
-            if ((grounded && this.Velocity > 0)) Velocity = 0;
-
-            this.Position -= new Vector3(0, this.Velocity, 0) * this.Camera.Speed * (float)e.Time; // Up
-            this.Camera.Position = this.Position + new Vector3(0, this.Height, 0);
-
-            // Head bobbing only when walking
-            if (!this.Fly)
-            {
-                // Calculate head bobbing motion
-                float bobbingSpeed = camSpeed * BobbingSpeed;
-                if (Math.Abs(movVec.X) < float.Epsilon && Math.Abs(movVec.Y) < float.Epsilon)
+                if (this.engine.CursorState == CursorState.Grabbed)
                 {
-                    bobbingTimer = 0f;  // Reset timer when no movement
+                    this.engine.CursorState = CursorState.Normal;
+                    // reset firstmove to true to dont jump to a new mouse position
+                    this.firstMove = true;
                 }
-                else
-                {
-                    bobbingTimer += bobbingSpeed * (float)e.Time;
-                }
-
-                // Apply head bobbing offset to the camera's vertical position
-                float bobbingOffset = (float)Math.Sin(bobbingTimer) * BobbingAmount;
-                this.Camera.Position += new Vector3(0, bobbingOffset, 0);
+                else this.engine.CursorState = CursorState.Grabbed;
             }
 
             if (this.engine.CursorState != CursorState.Grabbed) return;
@@ -137,77 +170,96 @@ namespace Engine
             }
         }
 
+        /// <summary>
+        /// Reset ray distance
+        /// </summary>
         public void ResetRay()
         {
             this.distance = 0;
         }
 
+        /// <summary>
+        /// Raycast in front of the camera to check if there is a voxel
+        /// </summary>
+        /// <param name="mouse"></param>
+        /// <param name="dir"></param>
         public void Raycast(MouseState mouse, Vector3 dir)
         {
             bool rayhit = false;
-            var camPos = new Vector3(this.Camera.Position.X, this.Camera.Position.Y, this.Camera.Position.Z);
-            Vector3 prevPos = camPos + (dir * step);
+            var camPos = this.Camera.Transform.Position;
+            Vector3 prevPos = camPos + (dir * Globals.RAY_STEP);
+            // create ray at camera position with the cameras direction
+            Ray ray = new Ray(camPos, dir);
             // shoot ray and check if there is a voxel
-            while (distance < maxDistance)
+            while (distance < this.PlayerReach)
             {
-                distance += step;
-
-                Vector3 point = camPos + (dir * distance);
-
-                int x = (int)Math.Floor(point.X);
-                int y = (int)Math.Floor(point.Y);
-                int z = (int)Math.Floor(point.Z);
-                Vector3 voxelPos = new Vector3(x, y, z);
-
-                var voxel = this.engine.world.GetVoxel(voxelPos);
+                distance += Globals.RAY_STEP;
+                Vector3 point = ray.GetPoint(distance);
+                Vector3I voxelPos = new Vector3I(point);
+                VoxelType voxel = this.engine.world.GetVoxel(voxelPos);
                 if (voxel != VoxelType.Air)
                 {
-                    rayhit = true;
-                    this.engine.HighlightBlock.Position = new System.Numerics.Vector3(x, y, z);
+                    // position and show highlightblock
+                    this.engine.HighlightBlock.Position = voxelPos.ToOTKVector3();
+                    this.engine.Preview.Position = voxelPos.ToOTKVector3() + new Vector3(0.5f, 0.5f, 0.5f);
                     this.engine.HighlightBlock.IsActive = true;
+                    this.engine.Preview.IsActive = true;
+                    rayhit = true;
                     break;
                 }
                 prevPos = point;
             }
 
+            // hide highlight block if there is no voxel
             if (!rayhit)
             {
                 this.engine.HighlightBlock.IsActive = false;
+                this.engine.Preview.IsActive = false;
             }
 
             // remove block on left click (if there is a block in front of the camera)
             if (mouse.IsButtonPressed(MouseButton.Left) && rayhit)
             {
-                int x = (int)Math.Floor((this.engine.HighlightBlock.Position.X));
-                int y = (int)Math.Floor(this.engine.HighlightBlock.Position.Y);
-                int z = (int)Math.Floor((this.engine.HighlightBlock.Position.Z));
+                // Define the radius of the sphere (e.g., 3 units)
+                float sphereRadius = this.BreakRadius;
 
-                if (BreakRadius == 0) this.ModifyBlock(x, y, z, VoxelType.Air);
-                else
+                // Get the center position (e.g., camera position)
+                Vector3 centerPosition = this.engine.HighlightBlock.Position;
+
+                // Iterate through all positions within the specified radius around the center position
+                for (int x = (int)Math.Floor(centerPosition.X - sphereRadius); x <= (int)Math.Ceiling(centerPosition.X + sphereRadius); x++)
                 {
-                    for (int x2 = x - this.BreakRadius; x2 < x + this.BreakRadius; x2++)
+                    for (int y = (int)Math.Floor(centerPosition.Y - sphereRadius); y <= (int)Math.Ceiling(centerPosition.Y + sphereRadius); y++)
                     {
-                        for (int z2 = z - this.BreakRadius; z2 < z + this.BreakRadius; z2++)
+                        for (int z = (int)Math.Floor(centerPosition.Z - sphereRadius); z <= (int)Math.Ceiling(centerPosition.Z + sphereRadius); z++)
                         {
-                            for (int y2 = y - this.BreakRadius; y2 < y + this.BreakRadius; y2++)
+                            // Check if the current position is within the sphere
+                            if (Vector3.Distance(new Vector3(x, y, z), centerPosition) <= sphereRadius)
                             {
-                                this.ModifyBlock(x2, y2, z2, VoxelType.Air);
+                                // Remove the block at the current position
+                                this.ModifyBlock(x, y, z, VoxelType.Air);
                             }
                         }
                     }
                 }
             }
 
+            // place block on right click
             if(mouse.IsButtonPressed(MouseButton.Right) && rayhit)
             {
                 // use prevPos to place block before the one your looking at
-                int x = (int)Math.Floor((prevPos.X));
-                int y = (int)Math.Floor(prevPos.Y);
-                int z = (int)Math.Floor((prevPos.Z));
-                this.ModifyBlock(x, y, z, this.HotbarVoxel);
+                Vector3I v = new Vector3I(prevPos);
+                this.ModifyBlock(v.X, v.Y, v.Z, VoxelType.Light);
             }
         }
 
+        /// <summary>
+        /// Change voxel type at the given position to the given type
+        /// </summary>
+        /// <param name="x"></param>
+        /// <param name="y"></param>
+        /// <param name="z"></param>
+        /// <param name="type"></param>
         public void ModifyBlock(int x, int y, int z, VoxelType type)
         {
             if (this.engine.showStats) return;

@@ -12,7 +12,7 @@ namespace Engine
     {
         public List<float> Data { get; set; }
         public bool IsActive { get; set; } = true;
-        public System.Numerics.Vector3 Position { get; set; }
+        public Vector3 Position { get; set; }
         public float Scale { get; set; } = 1.01f;
         private Shader Shader;
         private Texture Texture;
@@ -81,17 +81,17 @@ namespace Engine
             this.Data.Add(uv.Y);
         }
 
-        public void Render(Matrix4 model, Matrix4 view, Matrix4 projection, OpenTK.Mathematics.Vector3 pos)
+        public void Render(Matrix4 view, Matrix4 projection)
         {
             if (!this.IsActive) return;
             GL.Clear(ClearBufferMask.DepthBufferBit);
             this.Texture.Use();
             this.Shader.Use();
 
-            this.Shader.SetMatrix4("model", model);
+            this.Shader.SetMatrix4("model", Matrix4.Identity);
             this.Shader.SetMatrix4("view", view);
             this.Shader.SetMatrix4("projection", projection);
-            this.Shader.SetVector3("position", pos);
+            this.Shader.SetVector3("position", this.Position);
 
             GL.BindVertexArray(this.VAO);
             GL.DrawArrays(PrimitiveType.Triangles, 0, this.Data.Count);

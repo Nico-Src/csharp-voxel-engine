@@ -5,7 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using OpenTK.Mathematics;
 
-namespace Engine
+namespace Engine.Core
 {
     public class Frustum
     {

@@ -5,19 +5,18 @@ using System.Text;
 using System.Threading.Tasks;
 using OpenTK.Mathematics;
 
-namespace Engine
+namespace Engine.Core
 {
     public class Camera
     {
         public float Sensitivity = 0.2f;
-        public float Speed = 7.5f;
+        public float Speed = 50f;
 
         // Those vectors are directions pointing outwards from the camera to define how it rotated.
-        private Vector3 _front = -Vector3.UnitZ;
-
-        private Vector3 _up = Vector3.UnitY;
-
-        private Vector3 _right = Vector3.UnitX;
+        public Vector3 Front = -Vector3.UnitZ;
+        public Vector3 Up = Vector3.UnitY;
+        public Vector3 Right = Vector3.UnitX;
+        public Transform Transform { get; set; }
 
         // Rotation around the X axis (radians)
         private float _pitch;
@@ -31,22 +30,14 @@ namespace Engine
 
         public Camera(Vector3 position, float aspectRatio)
         {
-            Position = position;
+            this.Transform = new Transform(position);
             AspectRatio = aspectRatio;
             Frustum = new Frustum();
         }
 
-        // The position of the camera
-        public Vector3 Position { get; set; }
 
         // This is simply the aspect ratio of the viewport, used for the projection matrix.
         public float AspectRatio { private get; set; }
-
-        public Vector3 Front => _front;
-
-        public Vector3 Up => _up;
-
-        public Vector3 Right => _right;
 
         // We convert from degrees to radians as soon as the property is set to improve performance.
         public float Pitch
@@ -75,8 +66,6 @@ namespace Engine
         }
 
         // The field of view (FOV) is the vertical angle of the camera view.
-        // This has been discussed more in depth in a previous tutorial,
-        // but in this tutorial, you have also learned how we can use this to simulate a zoom feature.
         // We convert from degrees to radians as soon as the property is set to improve performance.
         public float Fov
         {
@@ -91,7 +80,7 @@ namespace Engine
         // Get the view matrix using the amazing LookAt function described more in depth on the web tutorials
         public Matrix4 GetViewMatrix()
         {
-            return Matrix4.LookAt(Position, Position + _front, _up);
+            return Matrix4.LookAt(this.Transform.Position, this.Transform.Position + this.Front, this.Up);
         }
 
         // Get the projection matrix using the same method we have used up until this point
@@ -104,20 +93,20 @@ namespace Engine
         private void UpdateVectors()
         {
             // First, the front matrix is calculated using some basic trigonometry.
-            _front.X = MathF.Cos(_pitch) * MathF.Cos(_yaw);
-            _front.Y = MathF.Sin(_pitch);
-            _front.Z = MathF.Cos(_pitch) * MathF.Sin(_yaw);
+            this.Front.X = MathF.Cos(_pitch) * MathF.Cos(_yaw);
+            this.Front.Y = MathF.Sin(_pitch);
+            this.Front.Z = MathF.Cos(_pitch) * MathF.Sin(_yaw);
 
             // We need to make sure the vectors are all normalized, as otherwise we would get some funky results.
-            _front = Vector3.Normalize(_front);
+            this.Front = Vector3.Normalize(this.Front);
 
             // Calculate both the right and the up vector using cross product.
             // Note that we are calculating the right from the global up; this behaviour might
             // not be what you need for all cameras so keep this in mind if you do not want a FPS camera.
-            _right = Vector3.Normalize(Vector3.Cross(_front, Vector3.UnitY));
-            _up = Vector3.Normalize(Vector3.Cross(_right, _front));
+            this.Right = Vector3.Normalize(Vector3.Cross(this.Front, Vector3.UnitY));
+            this.Up = Vector3.Normalize(Vector3.Cross(this.Right, this.Front));
 
-            Frustum.CalculateFrustum(this.GetProjectionMatrix(), this.GetViewMatrix());
+            this.Frustum.CalculateFrustum(this.GetProjectionMatrix(), this.GetViewMatrix());
         }
     }
 }
